@@ -7,7 +7,7 @@ VERSION = os.environ.get("APP_VERSION", "dev")
 
 @app.route("/")
 def index():
-    return jsonify(message="TP5 CI/CD GitOps", version=VERSION)
+    return jsonify(message="TP5 CI/CD GitOps — v2", version=VERSION)
 
 @app.route("/health")
 def health():

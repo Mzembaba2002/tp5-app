@@ -1,3 +1,42 @@
+name: CI - Build, Test, Scan, Publish
+
+on:
+  push:
+    branches: [main]
+
+env:
+  IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/tp5-app
+
+jobs:
+  build-test-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Récupération du code
+        uses: actions/checkout@v4
+
+      - name: Installer les dépendances Python
+        run: |
+          pip install -r requirements.txt
+
+      - name: Exécuter les tests automatisés
+        run: |
+          pip install pytest
+          pytest test_app.py
+
+      - name: Définir le tag de l'image (SHA court du commit)
+        id: vars
+        run: echo "tag=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Connexion à Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Construire l'image Docker
+        run: |
+          docker build -t $IMAGE_NAME:${{ steps.vars.outputs.tag }} -t $IMAGE_NAME:latest .
+
       - name: Scanner l'image avec Trivy
         uses: aquasecurity/trivy-action@master
         with:
@@ -6,3 +45,21 @@
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           exit-code: 1
+
+      - name: Publier l'image sur Docker Hub
+        run: |
+          docker push $IMAGE_NAME:${{ steps.vars.outputs.tag }}
+          docker push $IMAGE_NAME:latest
+
+      - name: Mettre à jour le dépôt de configuration
+        env:
+          GH_TOKEN: ${{ secrets.CONFIG_REPO_TOKEN }}
+        run: |
+          git clone https://x-access-token:${GH_TOKEN}@github.com/Mzembaba2002/tp5-config.git
+          cd tp5-config
+          sed -i "s|image: .*/tp5-app:.*|image: ${IMAGE_NAME}:${{ steps.vars.outputs.tag }}|" deployment.yaml
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add deployment.yaml
+          git commit -m "Deploy tp5-app:${{ steps.vars.outputs.tag }} (commit ${GITHUB_SHA})" || echo "Rien à committer"
+          git push
